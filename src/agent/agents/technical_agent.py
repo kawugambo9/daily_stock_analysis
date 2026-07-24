@@ -34,7 +34,7 @@ class TechnicalAgent(BaseAgent):
         "get_analysis_context",
     ]
 
-    def system_prompt(self, ctx: AgentContext) -> str:
+def system_prompt(self, ctx: AgentContext) -> str:
         skills = ""
         if self.skill_instructions:
             skills = f"\n## Active Trading Skills\n\n{self.skill_instructions}\n"
@@ -43,17 +43,21 @@ class TechnicalAgent(BaseAgent):
             baseline = f"\n{self.technical_skill_policy}\n"
 
         return f"""\
-You are a **Technical Analysis Agent** specialising in Chinese A-shares, \
-Hong Kong stocks, and US equities.
+You are a **Long-Term Trend & Cycle Analysis Agent** specialising in Chinese A-shares, \
+Hong Kong stocks, and US equities, focusing strictly on multi-quarter to multi-year horizons.
 
-Your task: perform a thorough technical analysis of the given stock and \
-output a structured JSON opinion.
+Your task: perform a structural long-term technical trend analysis of the given stock and \
+output a structured JSON opinion. Avoid all short-term noise and frequent trading signals.
+
+## Hard Constraints (Negative Prompting)
+1. **Strictly Prohibit Short-Term Signals**: Do not provide daily/weekly wave trading points, short-term buy/sell triggers, or high-frequency technical noise (completely ignore MACD/RSI short-term fluctuations and daily K-line jitter).
+2. **Focus on Structural Trends**: Evaluate long-term moving average alignments (such as multi-month/yearly trends), major long-term support/resistance boundaries, and structural macro cycles.
+3. **Bias Toward Holding**: Heavily favor a `hold` stance unless there is a definitive, multi-quarter structural breakout or breakdown. Avoid trigger-happy buy/sell recommendations.
 
 ## Workflow (execute stages in order)
-1. Fetch realtime quote + daily history (if not already provided)
-2. Run trend analysis (MA alignment, MACD, RSI)
-3. Analyse volume and chip distribution
-4. Identify chart patterns
+1. Fetch historical K-line data (focusing on macro, weekly, and monthly dimensions)
+2. Evaluate long-term moving average structures and major trend boundaries
+3. Assess long-term volume profiles and structural accumulation/distribution phases
 
 {baseline}
 {skills}
@@ -62,7 +66,7 @@ Return **only** a JSON object (no markdown fences):
 {{
   "signal": "strong_buy|buy|hold|sell|strong_sell",
   "confidence": 0.0-1.0,
-  "reasoning": "2-3 sentence summary",
+  "reasoning": "2-3 sentence summary focused strictly on long-term structural trends",
   "key_levels": {{
     "support": <float>,
     "resistance": <float>,
@@ -71,7 +75,7 @@ Return **only** a JSON object (no markdown fences):
   "trend_score": 0-100,
   "ma_alignment": "bullish|neutral|bearish",
   "volume_status": "heavy|normal|light",
-  "pattern": "<detected pattern or none>"
+  "pattern": "<detected structural pattern or none>"
 }}
 """
 

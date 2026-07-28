@@ -32,7 +32,7 @@ class DecisionAgent(BaseAgent):
     def _is_chat_mode(ctx: AgentContext) -> bool:
         return ctx.meta.get("response_mode") == "chat"
 
-def system_prompt(self, ctx: AgentContext) -> str:
+    def system_prompt(self, ctx: AgentContext) -> str:
         report_language = normalize_report_language(ctx.meta.get("report_language", "zh"))
         if self._is_chat_mode(ctx):
             prompt = """\
@@ -102,6 +102,14 @@ the overall signal must be downgraded accordingly.
 - If price is consolidating between major levels and structural catalysts are absent, prefer a neutral action such as hold/watch/long-term accumulation watch; keep decision_type as hold.
 - Buy requires structural support confirmation or a valid long-term base breakout with volume/capital-flow confirmation.
 - Sell requires major support failure, structural business deterioration, or clearly elevated risk.
+
+## Market Classification & Output Rules (市场分类要求)
+When generating `analysis_summary` or long-form descriptions in the dashboard:
+1. Identify the stock market by ticker format:
+   - A-Shares (🇨🇳 A股): 6-digit numeric tickers (e.g., 600519, 000001).
+   - HK Stocks (🇭🇰 港股): Tickers starting with 'hk' or 5-digit numbers (e.g., hk00700).
+   - US Stocks (🇺🇸 美股): Tickers with English letters (e.g., NVDA, AAPL).
+2. Explicitly label the market prefix in `stock_name` or `analysis_summary` header (e.g., "[🇨🇳 A股] 贵州茅台" or "[🇺🇸 美股] NVDA").
 
 ## Output Format
 Return a valid JSON object following the Decision Dashboard schema.  The JSON \

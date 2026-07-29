@@ -25,6 +25,7 @@ from enum import Enum
 
 from src.config import Config, get_config
 from src.enums import ReportType
+from src.market_context import detect_market
 from src.market_phase_summary import format_public_market_status_line, format_public_phase_pack_excerpt
 from src.notification_routing import (
     get_notification_route_config,
@@ -251,6 +252,44 @@ class ChannelDetector:
             NotificationChannel.UNKNOWN: "未知渠道",
         }
         return names.get(channel, "未知渠道")
+
+
+# 报告内市场分组顺序：A股 -> 港股 -> 美股，其余市场（日股/韩股/台股等）排在最后
+_REPORT_MARKET_ORDER = ("cn", "hk", "us")
+# market 字段常见取值 -> 标准市场代码（无法识别的取值原样保留，归入"其余市场"）
+_REPORT_MARKET_ALIASES = {
+    "cn": "cn", "a": "cn", "a股": "cn", "ashare": "cn", "a-share": "cn", "ashares": "cn",
+    "sh": "cn", "sz": "cn", "bj": "cn", "china": "cn",
+    "hk": "hk", "港股": "hk", "hongkong": "hk", "hong kong": "hk",
+    "us": "us", "usa": "us", "美股": "us", "nasdaq": "us", "nyse": "us",
+}
+
+
+def _sort_results_by_market_and_score(results: List[AnalysisResult]) -> List[AnalysisResult]:
+    """按市场分组 + 评分降序排序分析结果，供各报告生成方法统一复用。
+
+    - 市场识别：优先取 result.market 字段（常见别名归一化为 cn/hk/us），
+      缺失时回退到 code 规则（detect_market：.HK/HK 前缀/5 位数字为港股，
+      纯字母为美股，6 位数字等为 A 股）。
+    - 组内排序：按 sentiment_score 从高到低（稳定排序，同分保持传入顺序）。
+    - 合并顺序：A股 -> 港股 -> 美股 -> 其余市场。
+    """
+    market_rank = {market: idx for idx, market in enumerate(_REPORT_MARKET_ORDER)}
+    fallback_rank = len(_REPORT_MARKET_ORDER)
+
+    def market_of(result: AnalysisResult) -> str:
+        raw_market = str(getattr(result, "market", "") or "").strip().lower()
+        if raw_market:
+            return _REPORT_MARKET_ALIASES.get(raw_market, raw_market)
+        return detect_market(getattr(result, "code", "") or "")
+
+    return sorted(
+        results,
+        key=lambda r: (
+            market_rank.get(market_of(r), fallback_rank),
+            -(getattr(r, "sentiment_score", 0) or 0),
+        ),
+    )
 
 
 class NotificationService(
@@ -900,12 +939,8 @@ class NotificationService(
         self._append_market_status_line(report_lines, results, report_language)
         report_lines.extend(["---", ""])
 
-        # 按评分排序（高分在前）
-        sorted_results = sorted(
-            results,
-            key=lambda x: x.sentiment_score,
-            reverse=True
-        )
+        # 按市场分组排序（A股 -> 港股 -> 美股，各市场内评分降序）
+        sorted_results = _sort_results_by_market_and_score(results)
 
         buy_count, sell_count, hold_count = self._count_display_decisions(results, report_language)
         avg_score = sum(r.sentiment_score for r in results) / len(results) if results else 0
@@ -1272,8 +1307,8 @@ class NotificationService(
         if report_date is None:
             report_date = datetime.now().strftime('%Y-%m-%d')
 
-        # 按评分排序（高分在前）
-        sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
+        # 按市场分组排序（A股 -> 港股 -> 美股，各市场内评分降序）
+        sorted_results = _sort_results_by_market_and_score(results)
 
         buy_count, sell_count, hold_count = self._count_display_decisions(results, report_language)
 
@@ -1608,8 +1643,8 @@ class NotificationService(
 
         report_date = datetime.now().strftime('%Y-%m-%d')
 
-        # 按评分排序
-        sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
+        # 按市场分组排序（A股 -> 港股 -> 美股，各市场内评分降序）
+        sorted_results = _sort_results_by_market_and_score(results)
 
         buy_count, sell_count, hold_count = self._count_display_decisions(results, report_language)
 
@@ -1780,8 +1815,8 @@ class NotificationService(
         report_language = self._get_report_language(results)
         labels = get_report_labels(report_language)
 
-        # 按评分排序
-        sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
+        # 按市场分组排序（A股 -> 港股 -> 美股，各市场内评分降序）
+        sorted_results = _sort_results_by_market_and_score(results)
 
         buy_count, sell_count, hold_count = self._count_display_decisions(results, report_language)
         avg_score = sum(r.sentiment_score for r in results) / len(results) if results else 0
@@ -1872,7 +1907,7 @@ class NotificationService(
         # Fallback: brief summary from dashboard report
         if not results:
             return f"# {report_date} {labels['brief_title']}\n\n{labels['no_results']}"
-        sorted_results = sorted(results, key=lambda x: x.sentiment_score, reverse=True)
+        sorted_results = _sort_results_by_market_and_score(results)
         buy_count, sell_count, hold_count = self._count_display_decisions(results, report_language)
         lines = [
             f"# {report_date} {labels['brief_title']}",
@@ -2915,7 +2950,7 @@ class NotificationBuilder:
         labels = get_report_labels(report_language)
         lines = [f"📊 **{labels['summary_heading']}**", ""]
 
-        for r in sorted(results, key=lambda x: x.sentiment_score, reverse=True):
+        for r in _sort_results_by_market_and_score(results):
             display_action = display_action_fields_for_result(
                 r,
                 report_language=report_language,
